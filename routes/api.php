@@ -1,6 +1,7 @@
 <?php
 
-use Illuminate\Http\Request;
+use App\Http\Controllers\PaymentController;
+use App\Http\Middleware\Gateways\Gateway;
 use Illuminate\Support\Facades\Route;
 
 /*
@@ -14,6 +15,9 @@ use Illuminate\Support\Facades\Route;
 |
 */
 
-Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
-    return $request->user();
-});
+Route::middleware([Gateway::class])
+    ->controller(PaymentController::class)
+    ->group(static function (): void {
+        Route::post('create', 'new');
+    })
+;

@@ -4,8 +4,9 @@ use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 
-return new class() extends Migration {
-    public const TABLE_NAME = 'users';
+class CreateTablePayment extends Migration
+{
+    public const TABLE_NAME = 'payments';
 
     /**
      * Run the migrations.
@@ -14,11 +15,11 @@ return new class() extends Migration {
     {
         Schema::create(self::TABLE_NAME, static function (Blueprint $table): void {
             $table->id();
-            $table->string('name');
-            $table->string('email')->unique();
-            $table->timestamp('email_verified_at')->nullable();
-            $table->string('password');
-            $table->rememberToken();
+            $table->integer('merchant_id');
+            $table->integer('payment_id');
+            $table->integer('status');
+            $table->integer('amount');
+            $table->integer('amount_paid');
             $table->timestamps();
             $table->softDeletes();
         });
@@ -31,4 +32,4 @@ return new class() extends Migration {
     {
         Schema::dropIfExists(self::TABLE_NAME);
     }
-};
+}
