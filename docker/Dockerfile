@@ -1,64 +1,92 @@
-FROM ubuntu:22.04
+ARG PHP_VERSION=7.4
 
-LABEL maintainer="Taylor Otwell"
+FROM php:${PHP_VERSION}-fpm-alpine AS dev
 
-ARG WWWGROUP
-ARG NODE_VERSION=20
+RUN apk add --no-cache --virtual .persistent-deps \
+  openssl-dev \
+  libzip-dev \
+  zlib-dev \
+  freetype-dev \
+  libpng-dev \
+  libjpeg-turbo-dev \
+  nginx \
+  supervisor \
+  mysql-client \
+  shadow \
+  icu
 
-WORKDIR /var/www/html
+RUN apk add --update yaml-dev
 
-ENV DEBIAN_FRONTEND noninteractive
-ENV TZ=UTC
+RUN apk add --no-cache --virtual .build-deps \
+  oniguruma-dev \
+  autoconf \
+  g++ \
+  make \
+  icu-dev \
+  linux-headers
 
-RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+RUN pecl channel-update pecl.php.net
+RUN pecl install yaml && docker-php-ext-enable yaml
 
-RUN apt-get update
+RUN set -xe \
+  && pecl install xdebug-3.1.5 \
+  && pecl install redis \
+  && docker-php-ext-enable xdebug \
+  && docker-php-ext-enable redis \
+  && docker-php-ext-configure pdo_mysql --with-pdo-mysql \
+  && docker-php-ext-install -j$(nproc) \
+    opcache \
+    mbstring \
+    gd \
+    pdo_mysql \
+    exif \
+    sockets \
+    zip \
+    intl \
+  && apk del .build-deps \
+  && rm -rf /tmp/* /var/cache/apk/*
 
-RUN apt-get install -y gnupg gosu curl ca-certificates zip unzip git supervisor sqlite3 libcap2-bin libpng-dev python2
+COPY xdebug.ini /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
+COPY www.conf /usr/local/etc/php-fpm.d/www.conf
 
-RUN mkdir -p ~/.gnupg \
-    && chmod 600 ~/.gnupg \
-    && echo "disable-ipv6" >> ~/.gnupg/dirmngr.conf
+ENV COMPOSER_ALLOW_SUPERUSER 1
+ENV COMPOSER_NO_INTERACTION 1
+ENV COMPOSER_HTACCESS_PROTECT 0
+COPY --from=composer:2.6.6 /usr/bin/composer /usr/bin/composer
 
-RUN apt-key adv --homedir ~/.gnupg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys E5267A6C \
-    && apt-key adv --homedir ~/.gnupg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C300EE8C \
-    && echo "deb http://ppa.launchpad.net/ondrej/php/ubuntu jammy main" > /etc/apt/sources.list.d/ppa_ondrej_php.list \
-    && apt-get update
+RUN cp -f "$PHP_INI_DIR/php.ini-development" "$PHP_INI_DIR/php.ini"
 
-RUN apt-get install -y php7.4-cli php7.4-dev \
-       php7.4-pgsql php7.4-sqlite3 php7.4-gd \
-       php7.4-curl php7.4-memcached \
-       php7.4-imap php7.4-mysql php7.4-mbstring \
-       php7.4-xml php7.4-zip php7.4-bcmath php7.4-soap \
-       php7.4-intl php7.4-readline php7.4-pcov \
-       php7.4-msgpack php7.4-igbinary php7.4-ldap \
-       php7.4-redis php7.4-xdebug
+RUN echo 'upload_max_filesize = 10G' >> /usr/local/etc/php/conf.d/docker-php-upload_max_filesize.ini; \
+    echo 'post_max_size = 10G' >> /usr/local/etc/php/conf.d/docker-php-upload_max_filesize.ini
 
-RUN php -r "readfile('https://getcomposer.org/installer');" | php -- --install-dir=/usr/bin/ --filename=composer
+ENTRYPOINT ["/usr/bin/supervisord", "-c", "/app/docker/supervisord.conf"]
 
-RUN curl -sL https://deb.nodesource.com/setup_$NODE_VERSION.x | bash - \
-    && apt-get install -y nodejs \
-    && npm install -g npm
+FROM dev AS prod
 
-RUN curl -sS https://dl.yarnpkg.com/debian/pubkey.gpg | apt-key add - \
-    && echo "deb https://dl.yarnpkg.com/debian/ stable main" > /etc/apt/sources.list.d/yarn.list \
-    && apt-get update \
-    && apt-get install -y yarn \
-    && apt-get install -y mysql-client \
-    && apt-get -y autoremove \
-    && apt-get clean \
-    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+WORKDIR /app
 
-RUN setcap "cap_net_bind_service=+ep" /usr/bin/php7.4
+RUN cp -f "$PHP_INI_DIR/php.ini-production" "$PHP_INI_DIR/php.ini" \
+    && rm -f /usr/local/etc/php/conf.d/docker-php-ext-xdebug.ini
 
-RUN groupadd --force -g $WWWGROUP sail
-RUN useradd -ms /bin/bash --no-user-group -g $WWWGROUP -u 1337 sail
 
-COPY start-container /usr/local/bin/start-container
-COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
-COPY php.ini /etc/php/7.4/cli/conf.d/99-sail.ini
-RUN chmod +x /usr/local/bin/start-container
+COPY app /app/app
+COPY bootstrap /app/bootstrap
+COPY docker /app/docker
+COPY config /app/config
+COPY database /app/database
+COPY lang /app/lang
+COPY public /app/public
+COPY resources /app/resources
+COPY routes /app/routes
+COPY storage /app/storage
+COPY artisan /app/
+COPY phpunit.xml /app/
+COPY tests /app/tests
+COPY composer.json composer.lock /app/
 
-EXPOSE 8000
+RUN PUSHER_APP_ID=dummy \
+    PUSHER_APP_KEY=dummy \
+    PUSHER_APP_SECRET=dummy \
+    composer install --no-dev
 
-ENTRYPOINT ["start-container"]
+RUN chown -R www-data:www-data /app
