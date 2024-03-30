@@ -22,3 +22,4 @@ fabric.properties
 concept.php
 http-client.private.env.json
 /public/vendor
+/.php-cs-fixer.cache

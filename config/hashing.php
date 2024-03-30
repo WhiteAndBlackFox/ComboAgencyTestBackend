@@ -1,7 +1,6 @@
 <?php
 
 return [
-
     /*
     |--------------------------------------------------------------------------
     | Default Hash Driver
@@ -45,10 +44,9 @@ return [
     */
 
     'argon' => [
-        'memory' => 65536,
+        'memory' => 65_536,
         'threads' => 1,
         'time' => 4,
         'verify' => true,
     ],
-
 ];
